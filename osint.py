@@ -8,7 +8,7 @@ import telebot
 
 # ============ CONFIGURATION ============
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-ADMIN_ID = 5989928539  # Aapki Admin ID
+ADMIN_ID = 5989928539  # Aapki Admin ID set kar di gayi hai
 APP_URL = "https://osint-kblt.onrender.com"  # Aapka Render App URL
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -117,19 +117,54 @@ def handle_join_request(message):
     except Exception as e:
         print(f"Error handling join request: {e}")
 
-# ============ START COMMAND (Checking if bot is working) ============
+# ============ START COMMAND ============
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "User"
     add_user(user_id, first_name)
     
-    bot.reply_to(message, "🤖 Bot is working perfectly and online! Join requests filter is active.")
+    if user_id == ADMIN_ID:
+        bot.reply_to(message, "🤖 Bot is working!\n\nAdmin Commands:\n👉 `/removeid <user_id>` - Kisi ek ID ko hatane ke liye\n👉 `/removeid all` - Sabhi saved IDs ko delete karne ke liye")
+    else:
+        bot.reply_to(message, "🤖 Bot is working perfectly and online! Join requests filter is active.")
+
+# ============ REMOVE / DELETE BANNED ID COMMAND (Admin Only) ============
+@bot.message_handler(commands=['removeid'])
+def remove_banned_id_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    parts = message.text.split()
+    if len(parts) < 2:
+        bot.reply_to(message, "⚠️ **Galat tareeqa!**\n\nUse aise karein:\n👉 `/removeid 123456789` (Ek specific ID hatane ke liye)\n👉 `/removeid all` (Sabhi saved IDs delete karne ke liye)", parse_mode='Markdown')
+        return
+    
+    target = parts[1].strip()
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    
+    try:
+        if target.lower() == 'all':
+            # Option 2: Sabhi IDs delete karne ke liye
+            c.execute("DELETE FROM banned_requests")
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, "✅ **Success!** Database se sabhi saved banned/rejected user IDs ko delete kar diya gaya hai.")
+        else:
+            # Option 1: Sirf ek specific ID delete karne ke liye
+            user_id_to_remove = int(target)
+            c.execute("DELETE FROM banned_requests WHERE user_id = ?", (user_id_to_remove,))
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, f"✅ **Success!** User ID `{user_id_to_remove}` ko banned list se hata diya gaya hai ab wo dobara request bhej payega.", parse_mode='Markdown')
+    except Exception as e:
+        conn.close()
+        bot.reply_to(message, f"❌ Error: {e}")
 
 if __name__ == "__main__":
     init_db()
     run_keepalive_in_thread()
     run_self_ping_in_thread()
-    print("Bot is starting with allowed_updates for join requests...")
-    # SABSE MAIN FIX: Yeh allowed_updates dena zaroori hai tabhi join request aayegi!
+    print("Bot is starting with allowed_updates for join requests and /removeid command...")
     bot.infinity_polling(allowed_updates=['message', 'chat_join_request'])
