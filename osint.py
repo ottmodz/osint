@@ -8,7 +8,7 @@ import telebot
 
 # ============ CONFIGURATION ============
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-ADMIN_ID = 5989928539  # Aapki Admin ID set kar di gayi hai
+ADMIN_ID = 5989928539  # Aapki Admin ID
 APP_URL = "https://osint-kblt.onrender.com"  # Aapka Render App URL
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -24,6 +24,10 @@ def init_db():
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS banned_requests (
         user_id INTEGER PRIMARY KEY
+    )''')
+    # Dynamic Target Names store karne ke liye table
+    c.execute('''CREATE TABLE IF NOT EXISTS target_names (
+        name TEXT UNIQUE
     )''')
     conn.commit()
     conn.close()
@@ -50,6 +54,15 @@ def ban_user_id(user_id):
     c.execute("INSERT OR IGNORE INTO banned_requests (user_id) VALUES (?)", (user_id,))
     conn.commit()
     conn.close()
+
+# Database se dynamic target names fetch karne ke liye function
+def get_target_names():
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute("SELECT name FROM target_names")
+    rows = c.fetchall()
+    conn.close()
+    return [row[0] for row in rows]
 
 # ============ KEEPALIVE SERVER (Render ke liye) ============
 class HealthHandler(BaseHTTPRequestHandler):
@@ -83,13 +96,7 @@ def run_self_ping_in_thread():
     ping_thread = threading.Thread(target=self_ping, daemon=True)
     ping_thread.start()
 
-# ============ TARGET NAMES LIST ============
-TARGET_NAMES = [
-    "sahajan", 
-    "kudkii", 
-    "banner"
-]
-
+# ============ JOIN REQUEST HANDLER ============
 @bot.chat_join_request_handler()
 def handle_join_request(message):
     try:
@@ -106,8 +113,9 @@ def handle_join_request(message):
             print(f"Banned user ID matched, auto-dismissed request for ID: {user_id}")
             return
 
-        # Naam match karna
-        match_found = any(name.lower() in full_name for name in TARGET_NAMES)
+        # Database se target names ki list nikal kar check karna
+        target_names = get_target_names()
+        match_found = any(name.lower() in full_name for name in target_names)
 
         if match_found:
             ban_user_id(user_id)
@@ -125,9 +133,83 @@ def send_welcome(message):
     add_user(user_id, first_name)
     
     if user_id == ADMIN_ID:
-        bot.reply_to(message, "🤖 Bot is working!\n\nAdmin Commands:\n👉 `/removeid <user_id>` - Kisi ek ID ko hatane ke liye\n👉 `/removeid all` - Sabhi saved IDs ko delete karne ke liye")
+        bot.reply_to(message, 
+            "🤖 Bot is working!\n\n"
+            "👑 **Admin Commands:**\n"
+            "👉 `/addlist <name>` - Naya naam list me add karne ke liye\n"
+            "👉 `/unlist <name>` - List se naam hatane ke liye\n"
+            "👉 `/listnames` - Sabhi saved names dekhne ke liye\n"
+            "👉 `/removeid <user_id>` - Banned ID hatane ke liye\n"
+            "👉 `/removeid all` - Sabhi banned IDs saaf karne ke liye",
+            parse_mode='Markdown'
+        )
     else:
         bot.reply_to(message, "🤖 Bot is working perfectly and online! Join requests filter is active.")
+
+# ============ ADD TARGET NAME COMMAND (Admin Only) ============
+@bot.message_handler(commands=['addlist'])
+def add_list_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "⚠️ **Galat tareeqa!**\nUse aise karein: `/addlist raju`", parse_mode='Markdown')
+        return
+    
+    new_name = parts[1].strip().lower()
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO target_names (name) VALUES (?)", (new_name,))
+        conn.commit()
+        conn.close()
+        bot.reply_to(message, f"✅ **Success!** `{new_name}` ko target list me add kar diya gaya hai.", parse_mode='Markdown')
+    except sqlite3.IntegrityError:
+        conn.close()
+        bot.reply_to(message, f"⚠️ Yeh naam (`{new_name}`) pehle se hi list me maujud hai!", parse_mode='Markdown')
+    except Exception as e:
+        conn.close()
+        bot.reply_to(message, f"❌ Error: {e}")
+
+# ============ REMOVE TARGET NAME COMMAND (Admin Only) ============
+@bot.message_handler(commands=['unlist'])
+def unlist_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "⚠️ **Galat tareeqa!**\nUse aise karein: `/unlist raju`", parse_mode='Markdown')
+        return
+    
+    name_to_remove = parts[1].strip().lower()
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    
+    c.execute("DELETE FROM target_names WHERE name = ?", (name_to_remove,))
+    deleted_rows = c.rowcount
+    conn.commit()
+    conn.close()
+    
+    if deleted_rows > 0:
+        bot.reply_to(message, f"✅ **Success!** `{name_to_remove}` ko target list se hata diya gaya hai.", parse_mode='Markdown')
+    else:
+        bot.reply_to(message, f"⚠️ Yeh naam (`{name_to_remove}`) list me nahi mila.", parse_mode='Markdown')
+
+# ============ VIEW TARGET NAMES COMMAND (Admin Only) ============
+@bot.message_handler(commands=['listnames'])
+def list_names_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    names = get_target_names()
+    if not names:
+        bot.reply_to(message, "📋 Target list abhi khali hai! Koi bhi naam add nahi hai.")
+        return
+    
+    names_text = "\n".join([f"• `{name}`" for name in names])
+    bot.reply_to(message, f"📋 **Total Target Names: ({len(names)})**\n\n{names_text}", parse_mode='Markdown')
 
 # ============ REMOVE / DELETE BANNED ID COMMAND (Admin Only) ============
 @bot.message_handler(commands=['removeid'])
@@ -146,13 +228,11 @@ def remove_banned_id_command(message):
     
     try:
         if target.lower() == 'all':
-            # Option 2: Sabhi IDs delete karne ke liye
             c.execute("DELETE FROM banned_requests")
             conn.commit()
             conn.close()
             bot.reply_to(message, "✅ **Success!** Database se sabhi saved banned/rejected user IDs ko delete kar diya gaya hai.")
         else:
-            # Option 1: Sirf ek specific ID delete karne ke liye
             user_id_to_remove = int(target)
             c.execute("DELETE FROM banned_requests WHERE user_id = ?", (user_id_to_remove,))
             conn.commit()
@@ -166,5 +246,5 @@ if __name__ == "__main__":
     init_db()
     run_keepalive_in_thread()
     run_self_ping_in_thread()
-    print("Bot is starting with allowed_updates for join requests and /removeid command...")
+    print("Bot is starting with dynamic target list commands...")
     bot.infinity_polling(allowed_updates=['message', 'chat_join_request'])
