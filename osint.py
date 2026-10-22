@@ -9,7 +9,7 @@ import telebot
 # ============ CONFIGURATION ============
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 ADMIN_ID = 5989928539  # Aapki Admin ID
-APP_URL = os.environ.get("APP_URL", "https://osint-s7db.onrender.com")  # Updated Render App URL
+APP_URL = os.environ.get("APP_URL", "https://osint-kblt.onrender.com")  # Render App URL
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -79,7 +79,7 @@ def get_target_names():
         print(f"Get Target Names Error: {e}")
         return []
 
-# ============ KEEPALIVE SERVER (Render 24/7 ke liye) ============
+# ============ KEEPALIVE SERVER (Render ke liye) ============
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -106,7 +106,7 @@ def self_ping():
     time.sleep(10) # Server start hone ka wait karein
     while True:
         try:
-            time.sleep(180)  # Har 3 minute (180 seconds) baad self-ping karega taaki render sleep na ho
+            time.sleep(120)  # Har 2 minute baad self-ping karega taaki render sleep na ho
             if APP_URL:
                 response = requests.get(APP_URL, timeout=15)
                 print(f"Self-ping sent! Status Code: {response.status_code}")
@@ -226,7 +226,7 @@ def unlist_command(message):
         conn.close()
         
         if deleted_rows > 0:
-            bot.reply_to(message, f"✅ **Success!** `{name_to_remove}` ko target list se hata diya gaya hai.", parse_mode='Markdown')
+            bot.reply_to(message, f"✅ **Success!** `{name_to_remove}` ko target list से hata diya gaya hai.", parse_mode='Markdown')
         else:
             bot.reply_to(message, f"⚠️ Yeh naam (`{name_to_remove}`) list me nahi mila.", parse_mode='Markdown')
     except Exception as e:
@@ -263,6 +263,37 @@ def remove_banned_id_command(message):
     target = parts[1].strip()
     try:
         conn = sqlite3.connect('users.db', timeout=10)
+        c = conn.cursor()
+        
+        if target.lower() == 'all':
+            c.execute("DELETE FROM banned_requests")
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, "✅ **Success!** Database se sabhi saved banned/rejected user IDs ko delete kar diya gaya hai.")
+        else:
+            user_id_to_remove = int(target)
+            c.execute("DELETE FROM banned_requests WHERE user_id = ?", (user_id_to_remove,))
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, f"✅ **Success!** User ID `{user_id_to_remove}` ko banned list se hata diya gaya hai ab wo dobara request bhej payega.", parse_mode='Markdown')
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {e}")
+
+if __name__ == "__main__":
+    init_db()
+    run_keepalive_in_thread()
+    run_self_ping_in_thread()
+    print("Bot is starting 24/7 with error handling & auto-recovery...")
+    
+    # Infinite loop polling taaki agar network drop ho toh bot crash na ho, balki reconnect kar le
+    while True:
+        try:
+            bot.infinity_polling(allowed_updates=['message', 'chat_join_request'], timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Polling connection error: {e}")
+            time.sleep(5)
+            
+n = sqlite3.connect('users.db', timeout=10)
         c = conn.cursor()
         
         if target.lower() == 'all':
