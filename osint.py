@@ -1,15 +1,11 @@
 import os
 import sqlite3
-import threading
 import time
-import requests
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 
 # ============ CONFIGURATION ============
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 ADMIN_ID = 5989928539  # Aapki Admin ID
-APP_URL = os.environ.get("APP_URL", "https://osint-s7db.onrender.com")  # Render App URL
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -79,44 +75,6 @@ def get_target_names():
         print(f"Get Target Names Error: {e}")
         return []
 
-# ============ KEEPALIVE SERVER (Render ke liye) ============
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is running 24/7 successfully!")
-    def log_message(self, format, *args):
-        pass
-
-def start_keepalive_server():
-    port = int(os.environ.get("PORT", 10000))
-    try:
-        server = HTTPServer(("0.0.0.0", port), HealthHandler)
-        print(f"Keepalive server started on port {port}")
-        server.serve_forever()
-    except Exception as e:
-        print(f"Keepalive Server Error: {e}")
-
-def run_keepalive_in_thread():
-    server_thread = threading.Thread(target=start_keepalive_server, daemon=True)
-    server_thread.start()
-
-def self_ping():
-    time.sleep(10) # Server start hone ka wait karein
-    while True:
-        try:
-            time.sleep(180)  # Har 3 minute baad self-ping karega taaki render sleep na ho
-            if APP_URL:
-                response = requests.get(APP_URL, timeout=15)
-                print(f"Self-ping sent! Status Code: {response.status_code}")
-        except Exception as e:
-            print(f"Self-ping error: {e}")
-
-def run_self_ping_in_thread():
-    ping_thread = threading.Thread(target=self_ping, daemon=True)
-    ping_thread.start()
-
 # ============ JOIN REQUEST HANDLER ============
 @bot.chat_join_request_handler()
 def handle_join_request(message):
@@ -162,7 +120,7 @@ def send_welcome(message):
         
         if user_id == ADMIN_ID:
             bot.reply_to(message, 
-                "🤖 Bot is working 24/7!\n\n"
+                "🤖 Bot is working!\n\n"
                 "👑 **Admin Commands:**\n"
                 "👉 `/addlist <name>` - Naya naam list me add karne ke liye\n"
                 "👉 `/unlist <name>` - List se naam hatane ke liye\n"
@@ -268,6 +226,23 @@ def remove_banned_id_command(message):
         else:
             user_id_to_remove = int(target)
             c.execute("DELETE FROM banned_requests WHERE user_id = ?", (user_id_to_remove,))
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, f"✅ **Success!** User ID `{user_id_to_remove}` ko banned list se hata diya gaya hai ab wo dobara request bhej payega.", parse_mode='Markdown')
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {e}")
+
+if __name__ == "__main__":
+    init_db()
+    print("Bot is starting with error handling & auto-recovery...")
+    
+    while True:
+        try:
+            bot.infinity_polling(allowed_updates=['message', 'chat_join_request'], timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Polling connection error: {e}")
+            time.sleep(5)
+ecute("DELETE FROM banned_requests WHERE user_id = ?", (user_id_to_remove,))
             conn.commit()
             conn.close()
             bot.reply_to(message, f"✅ **Success!** User ID `{user_id_to_remove}` ko banned list se hata diya gaya hai ab wo dobara request bhej payega.", parse_mode='Markdown')
