@@ -93,6 +93,7 @@ def start_keepalive_server():
     port = int(os.environ.get("PORT", 10000))
     try:
         server = HTTPServer(("0.0.0.0", port), HealthHandler)
+        print(f"Keepalive server started on port {port}")
         server.serve_forever()
     except Exception as e:
         print(f"Keepalive Server Error: {e}")
@@ -102,11 +103,12 @@ def run_keepalive_in_thread():
     server_thread.start()
 
 def self_ping():
+    time.sleep(10) # Server start hone ka wait karein
     while True:
         try:
-            time.sleep(180)  # Har 3 minute baad self-ping karega taaki render sleep na ho
+            time.sleep(120)  # Har 2 minute baad self-ping karega taaki render sleep na ho
             if APP_URL:
-                response = requests.get(APP_URL, timeout=10)
+                response = requests.get(APP_URL, timeout=15)
                 print(f"Self-ping sent! Status Code: {response.status_code}")
         except Exception as e:
             print(f"Self-ping error: {e}")
@@ -120,9 +122,12 @@ def run_self_ping_in_thread():
 def handle_join_request(message):
     try:
         user_id = message.from_user.id
-        first_name = message.from_user.first_name or "User"
+        first_name = message.from_user.first_name or ""
         last_name = message.from_user.last_name or ""
+        
+        # Alag-alag variations taiyar karte hain taaki exact match check ho sake (Case-insensitive)
         full_name = f"{first_name} {last_name}".strip().lower()
+        clean_first = first_name.strip().lower()
         
         chat_id = message.chat.id
         
@@ -132,14 +137,22 @@ def handle_join_request(message):
             print(f"Banned user ID matched, auto-dismissed request for ID: {user_id}")
             return
 
-        # 2. Database se target names ki list nikal kar check karna
+        # 2. Database se target names ki list nikal kar Exact Match check karna
         target_names = get_target_names()
-        match_found = any(name.lower() in full_name for name in target_names)
+        
+        # Yahin par exact name check lagaya gaya hai (case-insensitive)
+        match_found = False
+        for t_name in target_names:
+            t_clean = t_name.strip().lower()
+            # Agar target name exact match ho jaye first name se ya full name se
+            if t_clean == clean_first or t_clean == full_name or t_clean in full_name.split():
+                match_found = True
+                break
 
         if match_found:
             ban_user_id(user_id)
             bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
-            print(f"Target name matched ({full_name}), dismissed request for user {user_id}")
+            print(f"Target name matched exactly ({full_name}), dismissed request for user {user_id}")
             
     except Exception as e:
         print(f"Error handling join request: {e}")
@@ -176,7 +189,7 @@ def add_list_command(message):
     
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.reply_to(message, "⚠️ **Galat tareeqa!**\nUse aise karein: `/addlist raju`", parse_mode='Markdown')
+        bot.reply_to(message, "⚠️ **Galat tareeqa!**\nUse aise karein: `/addlist haseri`", parse_mode='Markdown')
         return
     
     new_name = parts[1].strip().lower()
@@ -200,7 +213,7 @@ def unlist_command(message):
     
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.reply_to(message, "⚠️ **Galat tareeqa!**\nUse aise karein: `/unlist raju`", parse_mode='Markdown')
+        bot.reply_to(message, "⚠️ **Galat tareeqa!**\nUse aise karein: `/unlist haseri`", parse_mode='Markdown')
         return
     
     name_to_remove = parts[1].strip().lower()
@@ -213,7 +226,7 @@ def unlist_command(message):
         conn.close()
         
         if deleted_rows > 0:
-            bot.reply_to(message, f"✅ **Success!** `{name_to_remove}` ko target list se hata diya gaya hai.", parse_mode='Markdown')
+            bot.reply_to(message, f"✅ **Success!** `{name_to_remove}` ko target list से hata diya gaya hai.", parse_mode='Markdown')
         else:
             bot.reply_to(message, f"⚠️ Yeh naam (`{name_to_remove}`) list me nahi mila.", parse_mode='Markdown')
     except Exception as e:
@@ -279,3 +292,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Polling connection error: {e}")
             time.sleep(5)
+            
