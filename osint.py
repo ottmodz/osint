@@ -286,6 +286,25 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Polling connection error: {e}")
             time.sleep(5)
+ecute("DELETE FROM banned_requests WHERE user_id = ?", (user_id_to_remove,))
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, f"✅ **Success!** User ID `{user_id_to_remove}` ko banned list se hata diya gaya hai ab wo dobara request bhej payega.", parse_mode='Markdown')
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {e}")
+
+if __name__ == "__main__":
+    init_db()
+    run_keepalive_in_thread()
+    run_self_ping_in_thread()
+    print("Bot is starting 24/7 with error handling & auto-recovery...")
+    
+    while True:
+        try:
+            bot.infinity_polling(allowed_updates=['message', 'chat_join_request'], timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Polling connection error: {e}")
+            time.sleep(5)
 db', timeout=10)
         c = conn.cursor()
         
