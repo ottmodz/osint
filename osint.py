@@ -125,26 +125,21 @@ def handle_join_request(message):
         first_name = message.from_user.first_name or ""
         last_name = message.from_user.last_name or ""
         
-        # Alag-alag variations taiyar karte hain taaki exact match check ho sake (Case-insensitive)
         full_name = f"{first_name} {last_name}".strip().lower()
         clean_first = first_name.strip().lower()
         
         chat_id = message.chat.id
         
-        # 1. Agar user ki ID pehle se banned list me saved hai
         if is_user_banned(user_id):
             bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
             print(f"Banned user ID matched, auto-dismissed request for ID: {user_id}")
             return
 
-        # 2. Database se target names ki list nikal kar Exact Match check karna
         target_names = get_target_names()
         
-        # Yahin par exact name check lagaya gaya hai (case-insensitive)
         match_found = False
         for t_name in target_names:
             t_clean = t_name.strip().lower()
-            # Agar target name exact match ho jaye first name se ya full name se
             if t_clean == clean_first or t_clean == full_name or t_clean in full_name.split():
                 match_found = True
                 break
@@ -263,6 +258,35 @@ def remove_banned_id_command(message):
     target = parts[1].strip()
     try:
         conn = sqlite3.connect('users.db', timeout=10)
+        c = conn.cursor()
+        
+        if target.lower() == 'all':
+            c.execute("DELETE FROM banned_requests")
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, "✅ **Success!** Database se sabhi saved banned/rejected user IDs ko delete kar diya gaya hai.")
+        else:
+            user_id_to_remove = int(target)
+            c.execute("DELETE FROM banned_requests WHERE user_id = ?", (user_id_to_remove,))
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, f"✅ **Success!** User ID `{user_id_to_remove}` ko banned list se hata diya gaya hai ab wo dobara request bhej payega.", parse_mode='Markdown')
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {e}")
+
+if __name__ == "__main__":
+    init_db()
+    run_keepalive_in_thread()
+    run_self_ping_in_thread()
+    print("Bot is starting 24/7 with error handling & auto-recovery...")
+    
+    while True:
+        try:
+            bot.infinity_polling(allowed_updates=['message', 'chat_join_request'], timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Polling connection error: {e}")
+            time.sleep(5)
+sers.db', timeout=10)
         c = conn.cursor()
         
         if target.lower() == 'all':
