@@ -13,9 +13,7 @@ from urllib3.util.retry import Retry
 # ============ CONFIGURATION ============
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 ADMIN_ID = 5989928539
-APP_URL = os.environ.get(
-    "APP_URL", "https://osint-s7db.onrender.com"
-).strip().rstrip("/")
+APP_URL = os.environ.get("APP_URL", "https://osint-s7db.onrender.com").strip().rstrip("/")
 PORT = int(os.environ.get("PORT", "10000"))
 DB_PATH = os.environ.get("DB_PATH", "users.db")
 
@@ -85,8 +83,7 @@ def is_user_banned(user_id):
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT 1 FROM banned_requests WHERE user_id = ?",
-            (user_id,)
+            "SELECT 1 FROM banned_requests WHERE user_id = ?", (user_id,)
         ).fetchone()
         return row is not None
     finally:
@@ -136,10 +133,13 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 
 def start_health_server():
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), HealthHandler)
-    server.daemon_threads = True
-    logger.info("Health server listening on port %s", PORT)
-    server.serve_forever()
+    try:
+        server = ThreadingHTTPServer(("0.0.0.0", PORT), HealthHandler)
+        server.daemon_threads = True
+        logger.info("Health server listening on port %s", PORT)
+        server.serve_forever()
+    except Exception:
+        logger.exception("Health server failed to start")
 
 
 # ============ SELF-PING EVERY 3 MINUTES ============
@@ -156,20 +156,19 @@ def start_self_ping():
     session.mount("https://", HTTPAdapter(max_retries=retry))
 
     def worker():
-        # Allow the web server time to start.
-        time.sleep(15)
+        # Wait for the HTTP server and deployment to initialize.
+        time.sleep(20)
         while True:
             try:
                 response = session.get(APP_URL + "/health", timeout=15)
                 logger.info("Self-ping: HTTP %s", response.status_code)
+                response.close()
             except requests.RequestException:
                 logger.exception("Self-ping failed")
             time.sleep(180)
 
     threading.Thread(
-        target=worker,
-        daemon=True,
-        name="self-ping"
+        target=worker, daemon=True, name="self-ping"
     ).start()
 
 
@@ -191,14 +190,14 @@ def handle_join_request(request):
 
         target_names = get_target_names()
         matched = any(
-            (name.strip().lower() == first_name)
-            or (name.strip().lower() == full_name)
-            or (name.strip().lower() in full_name.split())
+            name.strip().lower() == first_name
+            or name.strip().lower() == full_name
+            or name.strip().lower() in full_name.split()
             for name in target_names
         )
 
         if matched:
-            # Only save the ID after Telegram successfully declines the request.
+            # Save the ID only after Telegram successfully declines the request.
             bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
             ban_user_id(user_id)
             logger.info("Target name matched; request declined for ID %s", user_id)
@@ -226,10 +225,7 @@ def send_welcome(message):
                 "/removeid all - Clear all banned IDs"
             )
         else:
-            text = (
-                "🤖 Bot is online!\n"
-                "Join-request filtering is active."
-            )
+            text = "🤖 Bot is online!\nJoin-request filtering is active."
 
         bot.reply_to(message, text)
     except Exception:
@@ -242,7 +238,7 @@ def add_list_command(message):
     if message.from_user.id != ADMIN_ID:
         return
 
-    parts = message.text.split(maxsplit=1)
+    parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
         bot.reply_to(message, "Usage: /addlist name")
         return
@@ -268,7 +264,7 @@ def unlist_command(message):
     if message.from_user.id != ADMIN_ID:
         return
 
-    parts = message.text.split(maxsplit=1)
+    parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
         bot.reply_to(message, "Usage: /unlist name")
         return
@@ -276,9 +272,7 @@ def unlist_command(message):
     name = parts[1].strip().lower()
     conn = get_db()
     try:
-        cursor = conn.execute(
-            "DELETE FROM target_names WHERE name = ?", (name,)
-        )
+        cursor = conn.execute("DELETE FROM target_names WHERE name = ?", (name,))
         conn.commit()
         if cursor.rowcount:
             bot.reply_to(message, f"✅ Removed target name: {name}")
@@ -306,7 +300,6 @@ def list_names_command(message):
         text = f"📋 Target Names ({len(names)}):\n\n" + "\n".join(
             f"• {name}" for name in names
         )
-        # Telegram messages have a maximum length; split long lists safely.
         for start in range(0, len(text), 3500):
             bot.reply_to(message, text[start:start + 3500])
     except Exception:
@@ -320,12 +313,9 @@ def remove_banned_id_command(message):
     if message.from_user.id != ADMIN_ID:
         return
 
-    parts = message.text.split(maxsplit=1)
+    parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(
-            message,
-            "Usage:\n/removeid 123456789\n/removeid all"
-        )
+        bot.reply_to(message, "Usage:\n/removeid 123456789\n/removeid all")
         return
 
     target = parts[1].strip()
@@ -335,14 +325,12 @@ def remove_banned_id_command(message):
             cursor = conn.execute("DELETE FROM banned_requests")
             conn.commit()
             bot.reply_to(
-                message,
-                f"✅ Cleared all banned IDs. Removed: {cursor.rowcount}"
+                message, f"✅ Cleared all banned IDs. Removed: {cursor.rowcount}"
             )
         else:
             user_id = int(target)
             cursor = conn.execute(
-                "DELETE FROM banned_requests WHERE user_id = ?",
-                (user_id,)
+                "DELETE FROM banned_requests WHERE user_id = ?", (user_id,)
             )
             conn.commit()
             if cursor.rowcount:
@@ -362,17 +350,13 @@ def remove_banned_id_command(message):
 def main():
     init_db()
 
-    # Start health server in a separate daemon thread.
     threading.Thread(
-        target=start_health_server,
-        daemon=True,
-        name="health-server"
+        target=start_health_server, daemon=True, name="health-server"
     ).start()
 
     start_self_ping()
     logger.info("Starting Telegram polling")
 
-    # Retry polling after network/API failures.
     while True:
         try:
             bot.infinity_polling(
@@ -390,8 +374,5 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+    main()
     
